@@ -1,0 +1,256 @@
+<!DOCTYPE html> 
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Medical Assistant</title>
+  <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;700&display=swap" rel="stylesheet">
+  <style>
+    * {
+      box-sizing: border-box;
+    }
+    body {
+      font-family: 'Roboto', sans-serif;
+      margin: 0;
+      background: #f4f7fa;
+    }
+    .app-container {
+      display: flex;
+      height: 100vh;
+    }
+    .sidebar {
+      width: 250px;
+      background-color: #263238;
+      color: white;
+      padding: 20px;
+      overflow-y: auto;
+    }
+    .sidebar h2 {
+      margin-top: 0;
+    }
+    .chat-history {
+      margin-top: 20px;
+    }
+    .chat-history div {
+      background: #37474f;
+      padding: 10px;
+      margin-bottom: 10px;
+      border-radius: 6px;
+      cursor: pointer;
+      transition: background 0.3s;
+    }
+    .chat-history div:hover {
+      background: #455a64;
+    }
+    .chat-container {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      background: white;
+    }
+    .chat-header {
+      background-color: #2196f3;
+      padding: 20px;
+      color: white;
+      font-size: 20px;
+      font-weight: 700;
+    }
+    .chat-box {
+      flex: 1;
+      padding: 20px;
+      overflow-y: auto;
+      background: #f0f0f0;
+    }
+    .message {
+      margin: 12px 0;
+      padding: 14px 20px;
+      border-radius: 20px;
+      max-width: 70%;
+      line-height: 1.5;
+      word-wrap: break-word;
+    }
+    .user-message {
+      background-color: #d1eaff;
+      align-self: flex-end;
+    }
+    .bot-message {
+      background-color: #e6f4ea;
+      align-self: flex-start;
+    }
+    .chat-input {
+      display: flex;
+      padding: 16px;
+      border-top: 1px solid #ccc;
+      background: #f9f9f9;
+    }
+    .chat-input input {
+      flex: 1;
+      padding: 12px;
+      border-radius: 20px;
+      border: 1px solid #ccc;
+      font-size: 16px;
+      margin-right: 10px;
+      outline: none;
+    }
+    .chat-input button {
+      background: #2196f3;
+      color: white;
+      border: none;
+      padding: 12px 20px;
+      border-radius: 20px;
+      cursor: pointer;
+      font-weight: bold;
+    }
+    .chat-input .mic-button {
+      background: #4caf50;
+      margin-left: 10px;
+    }
+img {
+  max-width: 100%;
+  height: auto;
+  border-radius: 8px;
+  margin-top: 10px;
+}
+  </style>
+</head>
+<body>
+  <div class="app-container">
+    <div class="sidebar">
+      <h2>Sessions</h2>
+      <button onclick="newChat()">+ New Chat</button>
+      <div class="chat-history" id="chat-history"></div>
+    </div>
+    <div class="chat-container">
+      <div class="chat-header">💬 Medical Chatbot</div>
+      <div class="chat-box" id="chat-box"></div>
+      <div class="chat-input">
+        <input type="text" id="user-input" placeholder="Ask a Medical Question..." onkeydown="if(event.key === 'Enter') sendMessage()" />
+        <button onclick="sendMessage()">Send</button>
+        <button class="mic-button" onclick="startVoice()">🎤</button>
+      </div>
+    </div>
+  </div>
+
+<script>
+  let currentSession = 'session-' + Date.now();
+  let allChats = JSON.parse(localStorage.getItem("chat-sessions")) || {};
+  const chatBox = document.getElementById("chat-box");
+
+  function loadChat(sessionId) {
+    currentSession = sessionId;
+    chatBox.innerHTML = "";
+    if (allChats[sessionId]) {
+      allChats[sessionId].forEach(msg => {
+        appendMessage(msg.text, msg.sender, msg.image);
+      });
+    }
+  }
+
+  function newChat() {
+    currentSession = 'session-' + Date.now();
+    allChats[currentSession] = [];
+    updateHistory();
+    chatBox.innerHTML = "";
+  }
+
+  function updateHistory() {
+    const historyEl = document.getElementById("chat-history");
+    historyEl.innerHTML = "";
+    Object.keys(allChats).forEach(id => {
+      const div = document.createElement("div");
+      div.textContent = new Date(parseInt(id.split('-')[1])).toLocaleString();
+      div.onclick = () => loadChat(id);
+      historyEl.appendChild(div);
+    });
+  }
+
+  function appendMessage(text, sender, imageUrl = null) {
+    const msg = document.createElement("div");
+    msg.className = "message " + (sender === "user" ? "user-message" : "bot-message");
+    msg.innerText = text;
+
+    if (imageUrl && sender === "bot") {
+      const img = document.createElement("img");
+      img.src = imageUrl;
+      img.alt = "Suggested image";
+      img.style.maxWidth = "200px";
+      img.style.marginTop = "10px";
+      img.style.borderRadius = "12px";
+      msg.appendChild(document.createElement("br"));
+      msg.appendChild(img);
+    }
+
+    chatBox.appendChild(msg);
+    chatBox.scrollTop = chatBox.scrollHeight;
+  }
+
+  function sendMessage() {
+    const input = document.getElementById("user-input");
+    const userText = input.value.trim();
+    if (!userText) return;
+
+    appendMessage(userText, "user");
+    allChats[currentSession] = allChats[currentSession] || [];
+    allChats[currentSession].push({ text: userText, sender: "user" });
+    saveChats();
+
+    input.value = "";
+    appendMessage("Typing...", "bot");
+
+    fetch("/get", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ msg: userText })
+    })
+    .then(res => res.json())
+    .then(data => {
+      const botMsg = chatBox.lastChild;
+      botMsg.innerText = data.response;
+
+      // if image available
+      if (data.image) {
+        const img = document.createElement("img");
+        img.src = data.image;
+        img.alt = "Suggested image";
+        img.style.maxWidth = "200px";
+        img.style.marginTop = "10px";
+        img.style.borderRadius = "12px";
+        botMsg.appendChild(document.createElement("br"));
+        botMsg.appendChild(img);
+      }
+
+      allChats[currentSession].push({ text: data.response, sender: "bot", image: data.image });
+      saveChats();
+    })
+    .catch(() => {
+      chatBox.lastChild.innerText = "⚠️ Error. Please try again.";
+    });
+  }
+
+  function saveChats() {
+    localStorage.setItem("chat-sessions", JSON.stringify(allChats));
+  }
+
+  function startVoice() {
+    try {
+      const recognition = new (window.SpeechRecognition || window.webkitSpeechRecognition)();
+      recognition.lang = 'en-US';
+      recognition.interimResults = false;
+      recognition.maxAlternatives = 1;
+      recognition.start();
+
+      recognition.onresult = function(event) {
+        document.getElementById("user-input").value = event.results[0][0].transcript;
+        sendMessage();
+      };
+    } catch (e) {
+      alert("Voice recognition not supported in this browser.");
+    }
+  }
+
+  updateHistory();
+  newChat();
+</script>
+
+</body>
+</html>
